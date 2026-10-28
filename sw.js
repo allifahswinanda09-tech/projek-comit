@@ -4,7 +4,7 @@
  * dan instalasi PWA standar modern.
  */
 
-const CACHE_NAME = 'jadwalsiaga-pwa-v2';
+const CACHE_NAME = 'jadwalsiaga-pwa-v3';
 const STATIC_ASSETS = [
   './',
   './index.html',

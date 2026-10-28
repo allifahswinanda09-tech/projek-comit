@@ -1,19 +1,42 @@
 /**
  * app.js — Main Application Controller for JadwalSiaga
+ * Bekerja tanpa modul (CORS-free) sehingga dapat berjalan langsung di file:// dan http://.
  * Mengontrol logika antarmuka, navigasi tab, kalender, WatchClockCard,
  * deteksi konflik jadwal, pencarian, jadwal berulang (F-14),
  * Modal Pengganti Suara Alarm (PRD Bagian 7 Poin 5) dengan pratinjau audio instan & upload kustom,
  * serta Progressive Web App (PWA) installation, offline sync, dan Service Worker registration.
  */
 
-import { getAllEvents, saveEvent, deleteEvent, clearAllEvents, getSettings, saveSettings, saveCustomAudio, getCustomAudio, deleteCustomAudio } from './db.js';
-import { sirenPlayer } from './sound.js';
-import { AlarmManager } from './alarm.js';
+(function(window) {
+  'use strict';
+
+  const getDB = () => window.JadwalSiagaDB || {};
+  const getAllEvents = (args) => (getDB().getAllEvents ? getDB().getAllEvents(args) : Promise.resolve([]));
+  const saveEvent = (args) => (getDB().saveEvent ? getDB().saveEvent(args) : Promise.resolve(args));
+  const deleteEvent = (args) => (getDB().deleteEvent ? getDB().deleteEvent(args) : Promise.resolve(true));
+  const clearAllEvents = () => (getDB().clearAllEvents ? getDB().clearAllEvents() : Promise.resolve(true));
+  const getSettings = () => (getDB().getSettings ? getDB().getSettings() : Promise.resolve(null));
+  const saveSettings = (args) => (getDB().saveSettings ? getDB().saveSettings(args) : Promise.resolve(args));
+  const saveCustomAudio = (d, f) => (getDB().saveCustomAudio ? getDB().saveCustomAudio(d, f) : Promise.resolve(true));
+  const getCustomAudio = () => (getDB().getCustomAudio ? getDB().getCustomAudio() : Promise.resolve(null));
+  const deleteCustomAudio = () => (getDB().deleteCustomAudio ? getDB().deleteCustomAudio() : Promise.resolve(true));
+
+  const getSirenPlayer = () => window.sirenPlayer;
+  const getAlarmManagerClass = () => window.AlarmManager;
 
 class App {
   constructor() {
     this.events = [];
-    this.settings = null;
+    this.settings = {
+      soundEnabled: true,
+      soundType: 'wail',
+      sirenVolume: 0.8,
+      clockVariant: 'orange',
+      defaultReminder: 10,
+      maxSirenDuration: 120,
+      notificationsEnabled: false,
+      customSoundName: ''
+    };
     this.activeTab = 'agenda';
     this.activeCategoryFilter = 'all';
     this.searchQuery = '';
@@ -35,60 +58,90 @@ class App {
     this.deferredInstallPrompt = null;
     this.isAppInstalled = false;
 
-    // Inisialisasi Alarm Manager
-    this.alarmManager = new AlarmManager({
-      onAlarmTriggered: (event) => {
-        this.renderAgenda();
-      },
-      onAlarmDismissed: (event) => {
-        if (event.snoozed) {
-          this.showToast(`Alarm "${event.title}" ditunda selama ${event.snoozeMinutes} menit.`);
-        } else {
-          this.showToast(`Alarm "${event.title}" telah dihentikan.`);
+    // Inisialisasi Alarm Manager dengan fail-safe
+    const AlarmClass = getAlarmManagerClass();
+    if (AlarmClass) {
+      this.alarmManager = new AlarmClass({
+        onAlarmTriggered: (event) => {
+          this.renderAgenda();
+        },
+        onAlarmDismissed: (event) => {
+          if (event && event.snoozed) {
+            this.showToast(`Alarm "${event.title}" ditunda selama ${event.snoozeMinutes} menit.`);
+          } else if (event) {
+            this.showToast(`Alarm "${event.title}" telah dihentikan.`);
+          }
+          this.renderAgenda();
         }
-        this.renderAgenda();
-      }
-    });
+      });
+    } else {
+      this.alarmManager = {
+        updateEvents: () => {},
+        updateSettings: () => {},
+        isEventOccurringOnDate: () => false,
+        getAlarmStatusForEvent: () => ({ code: 'ready', label: '🔔 Siaga', colorClass: 'status-ready' }),
+        triggerAlarm: () => {},
+        resetDismissed: () => {}
+      };
+    }
 
     this.init();
   }
 
   async init() {
-    // 1. Muat Pengaturan & Data
-    this.settings = await getSettings();
-    this.alarmManager.updateSettings(this.settings);
-    this.applyClockVariant(this.settings.clockVariant || 'orange');
-
-    // 2. Muat Audio Kustom Pengguna jika ada
-    const customAudioData = await getCustomAudio();
-    if (customAudioData && customAudioData.dataUrl) {
-      sirenPlayer.setCustomAudioDataUrl(customAudioData.dataUrl);
-      this.updateCustomSoundUI(customAudioData.fileName);
-    }
-
-    this.events = await getAllEvents();
-    if (this.events.length === 0) {
-      await this.seedSampleEvents();
-      this.events = await getAllEvents();
-    }
-    this.alarmManager.updateEvents(this.events);
-
-    // 3. Setup DOM Listeners & PWA Listeners
+    // 1. Setup DOM Listeners & Clock SEGERA (interaktif 100% tanpa menunggu database)
     this.setupEventListeners();
     this.setupSoundPickerModal();
     this.setupPwaFeatures();
-
-    // 4. Setup Jam Real-time (WatchClockCard & Header)
     this.startWatchClock();
 
-    // 5. Render Tampilan Awal
+    // 2. Varian jam awal & label suara awal
+    this.applyClockVariant(this.settings.clockVariant || 'orange');
+    this.updateSoundDisplayUI(this.settings.soundType || 'wail');
+
+    // 3. Muat Pengaturan dari Penyimpanan Lokal
+    try {
+      const savedSettings = await getSettings();
+      if (savedSettings) {
+        this.settings = { ...this.settings, ...savedSettings };
+      }
+    } catch (e) {
+      console.warn('Gagal memuat preferensi pengguna:', e);
+    }
+    this.alarmManager.updateSettings(this.settings);
+    this.applyClockVariant(this.settings.clockVariant || 'orange');
+
+    // 4. Muat Berkas Audio Kustom
+    try {
+      const customAudioData = await getCustomAudio();
+      const player = getSirenPlayer();
+      if (customAudioData && customAudioData.dataUrl && player) {
+        player.setCustomAudioDataUrl(customAudioData.dataUrl);
+        this.updateCustomSoundUI(customAudioData.fileName);
+      }
+    } catch (e) {}
+
+    // 5. Muat Data Jadwal (Events)
+    try {
+      this.events = await getAllEvents();
+      if (!this.events || this.events.length === 0) {
+        await this.seedSampleEvents();
+        this.events = await getAllEvents();
+      }
+    } catch (e) {
+      console.warn('Gagal memuat jadwal dari database:', e);
+      this.events = [];
+    }
+    this.alarmManager.updateEvents(this.events);
+
+    // 6. Render Tampilan Awal
     this.renderCurrentView();
     this.updateSoundDisplayUI(this.settings.soundType || 'wail');
     this.checkAudioState();
     this.updateNotificationPermissionStatus();
     this.updateStats();
 
-    // 6. Evaluasi URL Parameters dari PWA Shortcuts
+    // 7. Evaluasi URL Parameters dari PWA Shortcuts
     this.handleUrlParameters();
   }
 
@@ -214,8 +267,8 @@ class App {
     window.addEventListener('offline', updateOnlineStatus);
     updateOnlineStatus();
 
-    // Registrasi Service Worker
-    if ('serviceWorker' in navigator) {
+    // Registrasi Service Worker (hanya aktif pada protokol http/https, bukan file://)
+    if ('serviceWorker' in navigator && (window.location.protocol.startsWith('http') || window.location.hostname === 'localhost')) {
       navigator.serviceWorker.register('./sw.js', { scope: './' })
         .then((reg) => {
           console.log('Service Worker PWA berhasil didaftarkan dengan cakupan:', reg.scope);
@@ -379,6 +432,8 @@ class App {
     if (sliderVolume) {
       sliderVolume.addEventListener('input', async (e) => {
         this.settings.sirenVolume = parseFloat(e.target.value);
+        const player = getSirenPlayer();
+        if (player) player.setVolume(this.settings.sirenVolume);
         await saveSettings(this.settings);
         this.alarmManager.updateSettings(this.settings);
       });
@@ -410,14 +465,21 @@ class App {
     if (btnTestSiren) {
       let isTesting = false;
       btnTestSiren.addEventListener('click', () => {
+        const player = getSirenPlayer();
         if (!isTesting) {
           const soundType = this.settings.soundType || 'wail';
-          sirenPlayer.start(this.settings.sirenVolume || 0.8, 10, soundType);
+          if (player) {
+            player.start(this.settings.sirenVolume || 0.8, 10, soundType, () => {
+              btnTestSiren.textContent = '🔊 Uji Suara (10 dtk)';
+              btnTestSiren.classList.remove('btn-danger');
+              isTesting = false;
+            });
+          }
           btnTestSiren.textContent = '⏹️ Hentikan Uji Suara';
           btnTestSiren.classList.add('btn-danger');
           isTesting = true;
         } else {
-          sirenPlayer.stop();
+          if (player) player.stop();
           btnTestSiren.textContent = '🔊 Uji Suara (10 dtk)';
           btnTestSiren.classList.remove('btn-danger');
           isTesting = false;
@@ -466,16 +528,20 @@ class App {
     const audioBanner = document.getElementById('audioBanner');
     if (audioBanner) {
       audioBanner.addEventListener('click', () => {
-        sirenPlayer.initContext();
-        sirenPlayer.playBeep(880, 0.1);
+        const player = getSirenPlayer();
+        if (player) {
+          player.initContext();
+          player.playBeep(880, 0.1);
+        }
         audioBanner.classList.add('hidden');
         this.showToast('Audio alarm aktif dan siap bersuara');
       });
     }
 
     window.addEventListener('click', () => {
-      if (!sirenPlayer.audioUnlocked) {
-        sirenPlayer.initContext();
+      const player = getSirenPlayer();
+      if (player && !player.audioUnlocked) {
+        player.initContext();
         if (audioBanner) audioBanner.classList.add('hidden');
       }
     }, { once: true });
@@ -551,7 +617,10 @@ class App {
   previewSound(soundKey) {
     this.stopSoundPreview();
 
-    sirenPlayer.initContext();
+    const player = getSirenPlayer();
+    if (!player) return;
+
+    player.initContext();
     this.currentlyPreviewingSound = soundKey;
 
     document.querySelectorAll('.btn-preview-sound').forEach(btn => {
@@ -564,11 +633,13 @@ class App {
       }
     });
 
-    sirenPlayer.start(this.settings.sirenVolume || 0.8, 3.5, soundKey);
+    player.start(this.settings.sirenVolume || 0.8, 4.0, soundKey, () => {
+      this.stopSoundPreview();
+    });
 
     this.previewTimeoutId = setTimeout(() => {
       this.stopSoundPreview();
-    }, 3600);
+    }, 4200);
   }
 
   stopSoundPreview() {
@@ -576,7 +647,8 @@ class App {
       clearTimeout(this.previewTimeoutId);
       this.previewTimeoutId = null;
     }
-    sirenPlayer.stop();
+    const player = getSirenPlayer();
+    if (player) player.stop();
     this.currentlyPreviewingSound = null;
 
     document.querySelectorAll('.btn-preview-sound').forEach(btn => {
@@ -599,7 +671,8 @@ class App {
     reader.onload = async (event) => {
       const dataUrl = event.target.result;
       await saveCustomAudio(dataUrl, file.name);
-      sirenPlayer.setCustomAudioDataUrl(dataUrl);
+      const player = getSirenPlayer();
+      if (player) player.setCustomAudioDataUrl(dataUrl);
 
       this.updateCustomSoundUI(file.name);
       this.selectSoundCard('custom');
@@ -703,7 +776,8 @@ class App {
   checkAudioState() {
     const audioBanner = document.getElementById('audioBanner');
     if (audioBanner) {
-      if (sirenPlayer.audioUnlocked) {
+      const player = getSirenPlayer();
+      if (player && player.audioUnlocked) {
         audioBanner.classList.add('hidden');
       } else {
         audioBanner.classList.remove('hidden');
@@ -1435,6 +1509,16 @@ class App {
   }
 }
 
-window.addEventListener('DOMContentLoaded', () => {
-  window.jadwalSiagaApp = new App();
-});
+  function initApp() {
+    if (!window.jadwalSiagaApp) {
+      window.jadwalSiagaApp = new App();
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initApp);
+  } else {
+    initApp();
+  }
+
+})(window);

@@ -1,399 +1,362 @@
 /**
  * db.js — IndexedDB Data Layer for JadwalSiaga
+ * Bekerja tanpa modul (CORS-free) sehingga dapat berjalan langsung di file:// dan http://.
  * Mengelola penyimpanan lokal data jadwal (events), preferensi (settings),
- * serta berkas audio kustom pengguna.
+ * serta berkas audio kustom pengguna dengan fail-safe localStorage fallback.
  */
 
-const DB_NAME = 'JadwalSiagaDB';
-const DB_VERSION = 2; // Naikkan versi untuk object store audio
+(function(window) {
+  'use strict';
 
-let dbInstance = null;
+  const DB_NAME = 'JadwalSiagaDB';
+  const DB_VERSION = 2; // Versi untuk object store audio & events
 
-export function openDatabase() {
-  return new Promise((resolve) => {
-    if (dbInstance) {
-      resolve(dbInstance);
-      return;
-    }
+  let dbInstance = null;
 
-    if (!('indexedDB' in window)) {
-      console.warn('IndexedDB tidak didukung oleh peramban ini. Menggunakan localStorage fallback.');
-      resolve(null);
-      return;
-    }
-
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-    request.onupgradeneeded = (event) => {
-      const db = event.target.result;
-
-      if (!db.objectStoreNames.contains('events')) {
-        const eventsStore = db.createObjectStore('events', { keyPath: 'id' });
-        eventsStore.createIndex('date', 'date', { unique: false });
-        eventsStore.createIndex('category', 'category', { unique: false });
-        eventsStore.createIndex('completed', 'completed', { unique: false });
+  function openDatabase() {
+    return new Promise((resolve) => {
+      if (dbInstance) {
+        resolve(dbInstance);
+        return;
       }
 
-      if (!db.objectStoreNames.contains('settings')) {
-        db.createObjectStore('settings', { keyPath: 'key' });
+      if (!('indexedDB' in window)) {
+        resolve(null);
+        return;
       }
 
-      // Store khusus audio kustom (PRD Bagian 7 poin 5)
-      if (!db.objectStoreNames.contains('custom_audio')) {
-        db.createObjectStore('custom_audio', { keyPath: 'key' });
+      let settled = false;
+      const finish = (result) => {
+        if (!settled) {
+          settled = true;
+          resolve(result);
+        }
+      };
+
+      // Timeout fallback 250ms agar peramban tidak pernah membeku jika IndexedDB tertahan pada protokol file://
+      const timer = setTimeout(() => {
+        finish(null);
+      }, 250);
+
+      try {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+        request.onupgradeneeded = (event) => {
+          try {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains('events')) {
+              const eventsStore = db.createObjectStore('events', { keyPath: 'id' });
+              eventsStore.createIndex('date', 'date', { unique: false });
+              eventsStore.createIndex('category', 'category', { unique: false });
+              eventsStore.createIndex('completed', 'completed', { unique: false });
+            }
+            if (!db.objectStoreNames.contains('settings')) {
+              db.createObjectStore('settings', { keyPath: 'key' });
+            }
+            if (!db.objectStoreNames.contains('custom_audio')) {
+              db.createObjectStore('custom_audio', { keyPath: 'key' });
+            }
+          } catch (e) {
+            console.warn('Upgrade error:', e);
+          }
+        };
+
+        request.onsuccess = (event) => {
+          clearTimeout(timer);
+          dbInstance = event.target.result;
+          finish(dbInstance);
+        };
+
+        request.onerror = () => {
+          clearTimeout(timer);
+          finish(null);
+        };
+
+        request.onblocked = () => {
+          clearTimeout(timer);
+          finish(null);
+        };
+      } catch (err) {
+        clearTimeout(timer);
+        finish(null);
       }
-    };
-
-    request.onsuccess = (event) => {
-      dbInstance = event.target.result;
-      resolve(dbInstance);
-    };
-
-    request.onerror = (event) => {
-      console.error('Gagal membuka IndexedDB:', event.target.error);
-      resolve(null);
-    };
-  });
-}
-
-// Fallback LocalStorage Helpers
-const STORAGE_KEY_EVENTS = 'jadwalsiaga_events_backup';
-const STORAGE_KEY_SETTINGS = 'jadwalsiaga_settings_backup';
-const STORAGE_KEY_CUSTOM_AUDIO = 'jadwalsiaga_custom_audio';
-
-function getLocalEvents() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_EVENTS);
-    return raw ? JSON.parse(raw) : [];
-  } catch (e) {
-    return [];
-  }
-}
-
-function saveLocalEvents(events) {
-  try {
-    localStorage.setItem(STORAGE_KEY_EVENTS, JSON.stringify(events));
-  } catch (e) {}
-}
-
-export async function getAllEvents() {
-  const db = await openDatabase();
-  if (!db) {
-    return getLocalEvents();
+    });
   }
 
-  return new Promise((resolve) => {
+  // Fallback LocalStorage Helpers
+  const STORAGE_KEY_EVENTS = 'jadwalsiaga_events_backup';
+  const STORAGE_KEY_SETTINGS = 'jadwalsiaga_settings_backup';
+  const STORAGE_KEY_CUSTOM_AUDIO = 'jadwalsiaga_custom_audio';
+
+  function getLocalEvents() {
     try {
-      const transaction = db.transaction(['events'], 'readonly');
-      const store = transaction.objectStore('events');
-      const request = store.getAll();
-
-      request.onsuccess = () => resolve(request.result || []);
-      request.onerror = () => resolve(getLocalEvents());
+      const raw = localStorage.getItem(STORAGE_KEY_EVENTS);
+      return raw ? JSON.parse(raw) : [];
     } catch (e) {
-      resolve(getLocalEvents());
+      return [];
     }
-  });
-}
-
-export async function saveEvent(eventData) {
-  const db = await openDatabase();
-  
-  const currentEvents = getLocalEvents();
-  const index = currentEvents.findIndex(e => e.id === eventData.id);
-  if (index >= 0) {
-    currentEvents[index] = eventData;
-  } else {
-    currentEvents.push(eventData);
   }
-  saveLocalEvents(currentEvents);
 
-  if (!db) return eventData;
-
-  return new Promise((resolve) => {
+  function saveLocalEvents(events) {
     try {
-      const transaction = db.transaction(['events'], 'readwrite');
-      const store = transaction.objectStore('events');
-      const request = store.put(eventData);
+      localStorage.setItem(STORAGE_KEY_EVENTS, JSON.stringify(events));
+    } catch (e) {}
+  }
 
-      request.onsuccess = () => resolve(eventData);
-      request.onerror = () => resolve(eventData);
-    } catch (e) {
-      resolve(eventData);
+  async function getAllEvents() {
+    const db = await openDatabase();
+    if (!db) {
+      return getLocalEvents();
     }
-  });
-}
 
-export async function deleteEvent(id) {
-  const db = await openDatabase();
-  
-  const currentEvents = getLocalEvents().filter(e => e.id !== id);
-  saveLocalEvents(currentEvents);
+    return new Promise((resolve) => {
+      try {
+        const transaction = db.transaction(['events'], 'readonly');
+        const store = transaction.objectStore('events');
+        const request = store.getAll();
 
-  if (!db) return true;
+        request.onsuccess = () => {
+          const res = request.result || [];
+          if (res.length > 0) {
+            saveLocalEvents(res);
+            resolve(res);
+          } else {
+            resolve(getLocalEvents());
+          }
+        };
+        request.onerror = () => resolve(getLocalEvents());
+      } catch (e) {
+        resolve(getLocalEvents());
+      }
+    });
+  }
 
-  return new Promise((resolve) => {
-    try {
-      const transaction = db.transaction(['events'], 'readwrite');
-      const store = transaction.objectStore('events');
-      const request = store.delete(id);
-
-      request.onsuccess = () => resolve(true);
-      request.onerror = () => resolve(true);
-    } catch (e) {
-      resolve(true);
+  async function saveEvent(eventData) {
+    const currentEvents = getLocalEvents();
+    const index = currentEvents.findIndex(e => e.id === eventData.id);
+    if (index >= 0) {
+      currentEvents[index] = eventData;
+    } else {
+      currentEvents.push(eventData);
     }
-  });
-}
+    saveLocalEvents(currentEvents);
 
-export async function clearAllEvents() {
-  saveLocalEvents([]);
-  const db = await openDatabase();
-  if (!db) return true;
+    const db = await openDatabase();
+    if (!db) return eventData;
 
-  return new Promise((resolve) => {
-    try {
-      const transaction = db.transaction(['events'], 'readwrite');
-      const store = transaction.objectStore('events');
-      const request = store.clear();
-      request.onsuccess = () => resolve(true);
-      request.onerror = () => resolve(false);
-    } catch (e) {
-      resolve(false);
-    }
-  });
-}
+    return new Promise((resolve) => {
+      try {
+        const transaction = db.transaction(['events'], 'readwrite');
+        const store = transaction.objectStore('events');
+        const request = store.put(eventData);
 
-export async function getSettings() {
-  const defaultSettings = {
-    soundEnabled: true,
-    soundType: 'wail', // 'wail' | 'hilo' | 'beep' | 'chime' | 'buzzer' | 'custom'
-    sirenVolume: 0.8,
-    clockVariant: 'orange',
-    defaultReminder: 10,
-    maxSirenDuration: 120,
-    notificationsEnabled: false,
-    customSoundName: ''
-  };
+        request.onsuccess = () => resolve(eventData);
+        request.onerror = () => resolve(eventData);
+      } catch (e) {
+        resolve(eventData);
+      }
+    });
+  }
 
-  const db = await openDatabase();
-  if (!db) {
+  async function deleteEvent(id) {
+    const currentEvents = getLocalEvents().filter(e => e.id !== id);
+    saveLocalEvents(currentEvents);
+
+    const db = await openDatabase();
+    if (!db) return true;
+
+    return new Promise((resolve) => {
+      try {
+        const transaction = db.transaction(['events'], 'readwrite');
+        const store = transaction.objectStore('events');
+        const request = store.delete(id);
+
+        request.onsuccess = () => resolve(true);
+        request.onerror = () => resolve(true);
+      } catch (e) {
+        resolve(true);
+      }
+    });
+  }
+
+  async function clearAllEvents() {
+    saveLocalEvents([]);
+    const db = await openDatabase();
+    if (!db) return true;
+
+    return new Promise((resolve) => {
+      try {
+        const transaction = db.transaction(['events'], 'readwrite');
+        const store = transaction.objectStore('events');
+        const request = store.clear();
+        request.onsuccess = () => resolve(true);
+        request.onerror = () => resolve(false);
+      } catch (e) {
+        resolve(false);
+      }
+    });
+  }
+
+  async function getSettings() {
+    const defaultSettings = {
+      soundEnabled: true,
+      soundType: 'wail', // 'wail' | 'hilo' | 'beep' | 'chime' | 'buzzer' | 'custom'
+      sirenVolume: 0.8,
+      clockVariant: 'orange',
+      defaultReminder: 10,
+      maxSirenDuration: 120,
+      notificationsEnabled: false,
+      customSoundName: ''
+    };
+
+    let localResult = defaultSettings;
     try {
       const raw = localStorage.getItem(STORAGE_KEY_SETTINGS);
-      return raw ? { ...defaultSettings, ...JSON.parse(raw) } : defaultSettings;
-    } catch (e) {
-      return defaultSettings;
-    }
+      if (raw) localResult = { ...defaultSettings, ...JSON.parse(raw) };
+    } catch (e) {}
+
+    const db = await openDatabase();
+    if (!db) return localResult;
+
+    return new Promise((resolve) => {
+      try {
+        const transaction = db.transaction(['settings'], 'readonly');
+        const store = transaction.objectStore('settings');
+        const request = store.get('app_settings');
+
+        request.onsuccess = () => {
+          if (request.result && request.result.value) {
+            const merged = { ...defaultSettings, ...request.result.value };
+            try { localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(merged)); } catch (e) {}
+            resolve(merged);
+          } else {
+            resolve(localResult);
+          }
+        };
+
+        request.onerror = () => resolve(localResult);
+      } catch (e) {
+        resolve(localResult);
+      }
+    });
   }
 
-  return new Promise((resolve) => {
+  async function saveSettings(settings) {
     try {
-      const transaction = db.transaction(['settings'], 'readonly');
-      const store = transaction.objectStore('settings');
-      const request = store.get('app_settings');
+      localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(settings));
+    } catch (e) {}
 
-      request.onsuccess = () => {
-        if (request.result && request.result.value) {
-          resolve({ ...defaultSettings, ...request.result.value });
-        } else {
-          resolve(defaultSettings);
-        }
-      };
+    const db = await openDatabase();
+    if (!db) return settings;
 
-      request.onerror = () => resolve(defaultSettings);
-    } catch (e) {
-      resolve(defaultSettings);
-    }
-  });
-}
+    return new Promise((resolve) => {
+      try {
+        const transaction = db.transaction(['settings'], 'readwrite');
+        const store = transaction.objectStore('settings');
+        const request = store.put({ key: 'app_settings', value: settings });
 
-export async function saveSettings(settings) {
-  try {
-    localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(settings));
-  } catch (e) {}
+        request.onsuccess = () => resolve(settings);
+        request.onerror = () => resolve(settings);
+      } catch (e) {
+        resolve(settings);
+      }
+    });
+  }
 
-  const db = await openDatabase();
-  if (!db) return settings;
-
-  return new Promise((resolve) => {
+  /**
+   * Menyimpan berkas audio kustom
+   */
+  async function saveCustomAudio(dataUrl, fileName) {
     try {
-      const transaction = db.transaction(['settings'], 'readwrite');
-      const store = transaction.objectStore('settings');
-      const request = store.put({ key: 'app_settings', value: settings });
+      localStorage.setItem(STORAGE_KEY_CUSTOM_AUDIO, JSON.stringify({ dataUrl, fileName }));
+    } catch (e) {}
 
-      request.onsuccess = () => resolve(settings);
-      request.onerror = () => resolve(settings);
-    } catch (e) {
-      resolve(settings);
-    }
-  });
-}
+    const db = await openDatabase();
+    if (!db) return true;
 
-/**
- * Menyimpan berkas audio kustom
- */
-export async function saveCustomAudio(dataUrl, fileName) {
-  try {
-    localStorage.setItem(STORAGE_KEY_CUSTOM_AUDIO, JSON.stringify({ dataUrl, fileName }));
-  } catch (e) {}
+    return new Promise((resolve) => {
+      try {
+        const transaction = db.transaction(['custom_audio'], 'readwrite');
+        const store = transaction.objectStore('custom_audio');
+        const request = store.put({ key: 'user_alarm_sound', dataUrl, fileName });
+        request.onsuccess = () => resolve(true);
+        request.onerror = () => resolve(true);
+      } catch (e) {
+        resolve(true);
+      }
+    });
+  }
 
-  const db = await openDatabase();
-  if (!db) return true;
-
-  return new Promise((resolve) => {
-    try {
-      const transaction = db.transaction(['custom_audio'], 'readwrite');
-      const store = transaction.objectStore('custom_audio');
-      const request = store.put({ key: 'user_alarm_sound', dataUrl, fileName });
-      request.onsuccess = () => resolve(true);
-      request.onerror = () => resolve(true);
-    } catch (e) {
-      resolve(true);
-    }
-  });
-}
-
-/**
- * Mengambil berkas audio kustom
- */
-export async function getCustomAudio() {
-  const db = await openDatabase();
-  if (!db) {
+  /**
+   * Mengambil berkas audio kustom
+   */
+  async function getCustomAudio() {
+    let localCustom = null;
     try {
       const raw = localStorage.getItem(STORAGE_KEY_CUSTOM_AUDIO);
-      return raw ? JSON.parse(raw) : null;
-    } catch (e) {
-      return null;
-    }
+      if (raw) localCustom = JSON.parse(raw);
+    } catch (e) {}
+
+    const db = await openDatabase();
+    if (!db) return localCustom;
+
+    return new Promise((resolve) => {
+      try {
+        const transaction = db.transaction(['custom_audio'], 'readonly');
+        const store = transaction.objectStore('custom_audio');
+        const request = store.get('user_alarm_sound');
+
+        request.onsuccess = () => {
+          if (request.result) {
+            resolve(request.result);
+          } else {
+            resolve(localCustom);
+          }
+        };
+
+        request.onerror = () => resolve(localCustom);
+      } catch (e) {
+        resolve(localCustom);
+      }
+    });
   }
 
-  return new Promise((resolve) => {
+  /**
+   * Menghapus audio kustom
+   */
+  async function deleteCustomAudio() {
     try {
-      const transaction = db.transaction(['custom_audio'], 'readonly');
-      const store = transaction.objectStore('custom_audio');
-      const request = store.get('user_alarm_sound');
+      localStorage.removeItem(STORAGE_KEY_CUSTOM_AUDIO);
+    } catch (e) {}
 
-      request.onsuccess = () => {
-        if (request.result) {
-          resolve(request.result);
-        } else {
-          try {
-            const raw = localStorage.getItem(STORAGE_KEY_CUSTOM_AUDIO);
-            resolve(raw ? JSON.parse(raw) : null);
-          } catch(e) {
-            resolve(null);
-          }
-        }
-      };
+    const db = await openDatabase();
+    if (!db) return true;
 
-      request.onerror = () => resolve(null);
-    } catch (e) {
-      resolve(null);
-    }
-  });
-}
-
-/**
- * Menghapus audio kustom
- */
-export async function deleteCustomAudio() {
-  try {
-    localStorage.removeItem(STORAGE_KEY_CUSTOM_AUDIO);
-  } catch (e) {}
-
-  const db = await openDatabase();
-  if (!db) return true;
-
-  return new Promise((resolve) => {
-    try {
-      const transaction = db.transaction(['custom_audio'], 'readwrite');
-      const store = transaction.objectStore('custom_audio');
-      const request = store.delete('user_alarm_sound');
-      request.onsuccess = () => resolve(true);
-      request.onerror = () => resolve(true);
-    } catch (e) {
-      resolve(true);
-    }
-  });
-}
-
-  const db = await openDatabase();
-  if (!db) return true;
-
-  return new Promise((resolve) => {
-    try {
-      const transaction = db.transaction(['custom_audio'], 'readwrite');
-      const store = transaction.objectStore('custom_audio');
-      const request = store.put({ key: 'user_alarm_sound', dataUrl, fileName });
-      request.onsuccess = () => resolve(true);
-      request.onerror = () => resolve(true);
-    } catch (e) {
-      resolve(true);
-    }
-  });
-}
-
-/**
- * Mengambil berkas audio kustom
- */
-export async function getCustomAudio() {
-  const db = await openDatabase();
-  if (!db) {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY_CUSTOM_AUDIO);
-      return raw ? JSON.parse(raw) : null;
-    } catch (e) {
-      return null;
-    }
+    return new Promise((resolve) => {
+      try {
+        const transaction = db.transaction(['custom_audio'], 'readwrite');
+        const store = transaction.objectStore('custom_audio');
+        const request = store.delete('user_alarm_sound');
+        request.onsuccess = () => resolve(true);
+        request.onerror = () => resolve(true);
+      } catch (e) {
+        resolve(true);
+      }
+    });
   }
 
-  return new Promise((resolve) => {
-    try {
-      const transaction = db.transaction(['custom_audio'], 'readonly');
-      const store = transaction.objectStore('custom_audio');
-      const request = store.get('user_alarm_sound');
+  // Ekspor ke global window
+  window.JadwalSiagaDB = {
+    openDatabase,
+    getAllEvents,
+    saveEvent,
+    deleteEvent,
+    clearAllEvents,
+    getSettings,
+    saveSettings,
+    saveCustomAudio,
+    getCustomAudio,
+    deleteCustomAudio
+  };
 
-      request.onsuccess = () => {
-        if (request.result) {
-          resolve(request.result);
-        } else {
-          try {
-            const raw = localStorage.getItem(STORAGE_KEY_CUSTOM_AUDIO);
-            resolve(raw ? JSON.parse(raw) : null);
-          } catch(e) {
-            resolve(null);
-          }
-        }
-      };
-
-      request.onerror = () => resolve(null);
-    } catch (e) {
-      resolve(null);
-    }
-  });
-}
-
-/**
- * Menghapus audio kustom
- */
-export async function deleteCustomAudio() {
-  try {
-    localStorage.removeItem(STORAGE_KEY_CUSTOM_AUDIO);
-  } catch (e) {}
-
-  const db = await openDatabase();
-  if (!db) return true;
-
-  return new Promise((resolve) => {
-    try {
-      const transaction = db.transaction(['custom_audio'], 'readwrite');
-      const store = transaction.objectStore('custom_audio');
-      const request = store.delete('user_alarm_sound');
-      request.onsuccess = () => resolve(true);
-      request.onerror = () => resolve(true);
-    } catch (e) {
-      resolve(true);
-    }
-  });
-}
-
+})(window);
