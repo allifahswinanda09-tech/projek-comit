@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>JadwalSiaga — Pengatur Jadwal & Alarm</title>
+  
+  <meta name="theme-color" content="#211D35">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Aplikasi pengatur jadwal kuliah, sekolah, kerja dengan alarm peringatan merah dan gestur geser ke atas.">
+
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <div class="app-container">
+    
+    <!-- Audio Unlock Banner (Jika browser menahan autoplay sebelum ada interaksi) -->
+    <div id="audioBanner" class="audio-notice-banner hidden">
+      <span>🔔 <strong>Aktifkan Audio:</strong> Klik di sini agar suara sirine alarm diizinkan berbunyi.</span>
+      <span style="font-size: 16px;">🔊</span>
+    </div>
+
+    <!-- App Header (DESIGN.md 3.1) -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="brand-badge">
+          <span class="brand-pulse-dot"></span>
+          <span>JadwalSiaga</span>
+        </div>
+        <h1 class="app-title" id="pageHeaderTitle">Agenda</h1>
+        <div class="header-time-info" id="headerDateTime">Memuat waktu...</div>
+      </div>
+      <div class="header-actions">
+        <!-- Tombol Cepat Pengganti Suara Alarm (PRD 7 Poin 5) -->
+        <button class="btn-quick-sound" id="btnOpenSoundPickerHeader" title="Ganti Suara Alarm">
+          <span>🎵</span>
+          <span id="headerSoundLabel">Sirine</span>
+        </button>
+        <button class="btn-add-quick" id="btnAddQuick" title="Tambah Jadwal Baru">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          <span>Tambah</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="app-main">
+      
+      <!-- ================= TAB 1: AGENDA ================= -->
+      <section id="viewAgenda">
+        <!-- WatchClockCard (DESIGN.md 3.2 — Tampilan Jam Smartwatch) -->
+        <div class="watch-clock-card variant-orange" id="watchClockCard">
+          <div class="clock-info">
+            <div class="clock-date-line" id="clockDateLine">RABU, 28 OKT 2026</div>
+            <div class="clock-digits">
+              <span id="clockDigits">12:00</span>
+              <span class="clock-ampm" id="clockAmPm">PM :00</span>
+            </div>
+            <div class="clock-next-agenda" id="nextAgendaText">
+              <span>Memuat agenda berikutnya...</span>
+            </div>
+          </div>
+          <!-- Circular Seconds Progress Ring -->
+          <div class="clock-ring-wrap" title="Indikator Detik Jam">
+            <svg class="clock-ring-svg" viewBox="0 0 72 72">
+              <circle class="clock-ring-bg" cx="36" cy="36" r="32" stroke-width="4" fill="none" />
+              <circle id="clockProgressCircle" class="clock-ring-progress" cx="36" cy="36" r="32" stroke-width="4" fill="none" />
+            </svg>
+            <div class="clock-ring-center" id="clockRingLabel">SIAGA<br>ON</div>
+          </div>
+        </div>
+
+        <!-- Kolom Pencarian Cepat -->
+        <div class="search-container">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-text-muted);">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" id="searchInput" class="search-input" placeholder="Cari kegiatan atau catatan...">
+        </div>
+
+        <!-- Filter Bar Kategori -->
+        <div style="margin-top: 10px; margin-bottom: 8px;">
+          <div class="filter-scroll-container">
+            <button class="filter-chip active" data-category="all">Semua</button>
+            <button class="filter-chip" data-category="kuliah">🎓 Kuliah</button>
+            <button class="filter-chip" data-category="sekolah">📚 Sekolah</button>
+            <button class="filter-chip" data-category="kerja">💼 Kerja</button>
+            <button class="filter-chip" data-category="lainnya">⚡ Lainnya</button>
+          </div>
+        </div>
+
+        <!-- Bagian Jadwal Hari Ini -->
+        <div style="margin-top: 10px;">
+          <div class="section-header">
+            <h2 class="section-title">
+              <span>Hari Ini</span>
+              <span class="section-count-badge" id="countTodayBadge">0</span>
+            </h2>
+          </div>
+          <div class="schedule-list" id="listTodayAgenda">
+            <!-- Diisi dinamis oleh JavaScript -->
+          </div>
+        </div>
+
+        <!-- Bagian Jadwal Mendatang -->
+        <div style="margin-top: 24px;">
+          <div class="section-header">
+            <h2 class="section-title">
+              <span>Jadwal Mendatang</span>
+              <span class="section-count-badge" id="countUpcomingBadge">0</span>
+            </h2>
+          </div>
+          <div class="schedule-list" id="listUpcomingAgenda">
+            <!-- Diisi dinamis oleh JavaScript -->
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 2: KALENDER ================= -->
+      <section id="viewKalender" class="hidden">
+        <div class="calendar-view-wrap">
+          <!-- Calendar Nav -->
+          <div class="calendar-header-nav">
+            <button class="btn-cal-nav" id="btnPrevMonth" title="Bulan Sebelumnya">◀</button>
+            <div class="cal-month-title" id="calMonthTitle">Oktober 2026</div>
+            <button class="btn-cal-nav" id="btnNextMonth" title="Bulan Berikutnya">▶</button>
+          </div>
+
+          <!-- Calendar Days Grid -->
+          <div class="calendar-grid">
+            <div class="cal-day-label">Min</div>
+            <div class="cal-day-label">Sen</div>
+            <div class="cal-day-label">Sel</div>
+            <div class="cal-day-label">Rab</div>
+            <div class="cal-day-label">Kam</div>
+            <div class="cal-day-label">Jum</div>
+            <div class="cal-day-label">Sab</div>
+            <div id="calGridDays" style="display: contents;"></div>
+          </div>
+
+          <!-- Daftar Jadwal Tanggal Terpilih -->
+          <div style="margin-top: 8px;">
+            <div class="section-header">
+              <h2 class="section-title">
+                <span>Agenda: <span id="calSelectedDateLabel" style="color: var(--color-cyan); font-weight: normal;">Hari Ini</span></span>
+              </h2>
+            </div>
+            <div class="schedule-list" id="calEventsList">
+              <!-- Diisi dinamis oleh app.js -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 3: PENGATURAN ================= -->
+      <section id="viewPengaturan" class="hidden">
+        <div class="settings-section">
+          
+          <!-- Statistik Ringkas (Metrik PRD Bagian 13) -->
+          <div class="settings-card">
+            <h3 style="font-size: 14px; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">📊 Ringkasan Kegiatan</h3>
+            <div class="stats-grid">
+              <div class="stat-box">
+                <div class="stat-number" id="statTotalEvents">0</div>
+                <div class="stat-label">Total Jadwal</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-number" id="statCompletedEvents" style="color: var(--color-teal);">0</div>
+                <div class="stat-label">Selesai</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-number" id="statTodayEvents" style="color: var(--color-orange);">0</div>
+                <div class="stat-label">Hari Ini</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Suara & Pengganti Suara Alarm (PRD Bagian 7 Poin 5) -->
+          <div class="settings-card">
+            <h3 style="font-size: 15px; color: var(--color-cyan); margin-bottom: -4px;">🚨 Pengaturan Suara & Sirine</h3>
+            
+            <div class="settings-row">
+              <div class="settings-row-text">
+                <span class="settings-label">Aktifkan Suara Alarm</span>
+                <span class="settings-desc">Bunyikan suara saat waktu pengingat tiba</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="switchSound" checked>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+
+            <!-- PRD Bagian 7 Poin 5: Fitur Pengganti Suara Alarm -->
+            <div class="settings-row">
+              <div class="settings-row-text">
+                <span class="settings-label">Suara Alarm Aktif</span>
+                <span class="settings-desc" id="currentSoundNameDisplay">🚨 Sirine Ayun (Wail)</span>
+              </div>
+              <button class="btn-secondary" id="btnOpenSoundPickerSettings" style="background: rgba(0, 189, 235, 0.15); border-color: var(--color-cyan); color: var(--color-cyan); font-weight: 600;">
+                <span>🎵 Ganti Suara</span>
+              </button>
+            </div>
+
+            <div class="settings-row">
+              <div class="settings-row-text">
+                <span class="settings-label">Volume Alarm</span>
+                <span class="settings-desc">Tingkat kekerasan suara</span>
+              </div>
+              <input type="range" id="sliderVolume" min="0.1" max="1.0" step="0.05" value="0.8" style="accent-color: var(--color-cyan); width: 100px;">
+            </div>
+
+            <div class="settings-row">
+              <div class="settings-row-text">
+                <span class="settings-label">Uji Suara Alarm</span>
+                <span class="settings-desc">Dengarkan simulasi alarm saat ini</span>
+              </div>
+              <button class="btn-secondary" id="btnTestSiren">
+                <span>🔊 Uji Suara (10 dtk)</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Preferensi Pengingat & Tampilan Jam -->
+          <div class="settings-card">
+            <h3 style="font-size: 15px; color: var(--color-teal); margin-bottom: -4px;">⚙️ Preferensi & Tampilan</h3>
+
+            <div class="settings-row">
+              <div class="settings-row-text">
+                <span class="settings-label">Warna Jam Smartwatch</span>
+                <span class="settings-desc">Varian warna WatchClockCard (DESIGN.md 3.2)</span>
+              </div>
+              <div class="color-variant-options" id="colorVariantOptions">
+                <button type="button" class="color-pill-btn pill-orange selected" data-variant="orange" title="Oranye"></button>
+                <button type="button" class="color-pill-btn pill-cyan" data-variant="cyan" title="Cyan"></button>
+                <button type="button" class="color-pill-btn pill-magenta" data-variant="magenta" title="Magenta"></button>
+                <button type="button" class="color-pill-btn pill-purple" data-variant="purple" title="Biru-Ungu"></button>
+              </div>
+            </div>
+
+            <div class="settings-row">
+              <div class="settings-row-text">
+                <span class="settings-label">Waktu Pengingat Bawaan</span>
+                <span class="settings-desc">Jarak alarm sebelum jadwal dimulai</span>
+              </div>
+              <select class="settings-select" id="selectDefaultReminder">
+                <option value="0">Tepat saat kegiatan dimulai</option>
+                <option value="5">5 Menit sebelumnya</option>
+                <option value="10" selected>10 Menit sebelumnya</option>
+                <option value="15">15 Menit sebelumnya</option>
+                <option value="30">30 Menit sebelumnya</option>
+              </select>
+            </div>
+
+            <div class="settings-row">
+              <div class="settings-row-text">
+                <span class="settings-label">Notifikasi Peramban</span>
+                <span class="settings-desc" id="notifStatusText">Memeriksa status...</span>
+              </div>
+              <button class="btn-secondary" id="btnRequestNotif">
+                <span>Minta Izin</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Manajemen & Cadangan Data -->
+          <div class="settings-card">
+            <h3 style="font-size: 15px; color: var(--color-orange); margin-bottom: -4px;">💾 Cadangan & Data</h3>
+            
+            <div class="settings-row">
+              <div class="settings-row-text">
+                <span class="settings-label">Ekspor Cadangan</span>
+                <span class="settings-desc">Unduh berkas JSON seluruh jadwal</span>
+              </div>
+              <button class="btn-secondary" id="btnExportData">
+                <span>📥 Ekspor JSON</span>
+              </button>
+            </div>
+
+            <div class="settings-row">
+              <div class="settings-row-text">
+                <span class="settings-label">Impor Cadangan</span>
+                <span class="settings-desc">Pulihkan jadwal dari berkas JSON</span>
+              </div>
+              <button class="btn-secondary" id="btnTriggerImport">
+                <span>📤 Impor JSON</span>
+              </button>
+              <input type="file" id="fileInputImport" accept=".json" style="display: none;">
+            </div>
+
+            <div class="settings-row">
+              <div class="settings-row-text">
+                <span class="settings-label" style="color: var(--color-danger);">Reset Semua Data</span>
+                <span class="settings-desc">Hapus seluruh jadwal yang tersimpan</span>
+              </div>
+              <button class="btn-secondary" id="btnClearAllData" style="color: var(--color-danger); border-color: rgba(245,34,53,0.3);">
+                <span>🗑️ Kosongkan</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Keterangan Batasan Web sesuai PRD Bagian 9 -->
+          <div class="info-card">
+            <strong>ℹ️ Catatan Keterbatasan Web:</strong>
+            <p style="margin-top: 6px;">
+              Alarm bekerja paling andal saat tab aplikasi tetap terbuka atau terpasang sebagai PWA. Browser membatasi pemutaran audio otomatis jika belum ada interaksi pengguna, serta dapat menunda timer jika tab berada di latar belakang. Pastikan memberi izin notifikasi peramban.
+            </p>
+          </div>
+
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Bottom Navigation Bar -->
+    <nav class="app-bottom-nav">
+      <button class="nav-tab-btn active" data-tab="agenda">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 20h9"></path>
+          <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+        </svg>
+        <span class="nav-tab-label">Agenda</span>
+      </button>
+
+      <button class="nav-tab-btn" data-tab="kalender">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+          <line x1="16" y1="2" x2="16" y2="6"></line>
+          <line x1="8" y1="2" x2="8" y2="6"></line>
+          <line x1="3" y1="10" x2="21" y2="10"></line>
+        </svg>
+        <span class="nav-tab-label">Kalender</span>
+      </button>
+
+      <button class="nav-tab-btn" data-tab="pengaturan">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+        <span class="nav-tab-label">Pengaturan</span>
+      </button>
+    </nav>
+
+    <!-- ================= MODAL TAMBAH / EDIT JADWAL ================= -->
+    <div id="eventModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-sheet">
+        <div class="modal-header">
+          <h2 class="modal-title" id="modalTitle">Tambah Jadwal Baru</h2>
+          <button type="button" class="btn-close-modal" id="btnCloseModal" aria-label="Tutup">✕</button>
+        </div>
+
+        <form id="eventForm">
+          <!-- Deteksi Tabrakan Waktu (F-10) -->
+          <div id="conflictWarningBox" class="conflict-warning-box hidden">
+            <span>⚠️</span>
+            <span id="conflictWarningText">Peringatan: Jadwal ini bentrok dengan jadwal lain.</span>
+          </div>
+
+          <!-- Judul Kegiatan -->
+          <div class="form-group">
+            <label class="form-label" for="eventTitle">Nama Kegiatan / Mata Kuliah *</label>
+            <input type="text" id="eventTitle" class="form-input" placeholder="Misal: Algoritma & Pemrograman" required>
+          </div>
+
+          <!-- Kategori -->
+          <div class="form-group">
+            <label class="form-label">Kategori Kegiatan *</label>
+            <div class="category-radio-group">
+              <input type="radio" name="category" id="catKuliah" value="kuliah" checked>
+              <label for="catKuliah" class="category-radio-label">Kuliah</label>
+
+              <input type="radio" name="category" id="catSekolah" value="sekolah">
+              <label for="catSekolah" class="category-radio-label">Sekolah</label>
+
+              <input type="radio" name="category" id="catKerja" value="kerja">
+              <label for="catKerja" class="category-radio-label">Kerja</label>
+
+              <input type="radio" name="category" id="catLainnya" value="lainnya">
+              <label for="catLainnya" class="category-radio-label">Lainnya</label>
+            </div>
+          </div>
+
+          <!-- Tanggal & Jam Mulai -->
+          <div class="form-row-2">
+            <div class="form-group">
+              <label class="form-label" for="eventDate">Tanggal *</label>
+              <input type="date" id="eventDate" class="form-input" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="eventStartTime">Jam Mulai *</label>
+              <input type="time" id="eventStartTime" class="form-input" required>
+            </div>
+          </div>
+
+          <!-- Durasi & Pengingat -->
+          <div class="form-row-2">
+            <div class="form-group">
+              <label class="form-label" for="eventDuration">Durasi (Menit) *</label>
+              <input type="number" id="eventDuration" class="form-input" min="5" max="720" value="60" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="eventReminder">Waktu Pengingat</label>
+              <select id="eventReminder" class="form-select">
+                <option value="0">Tepat saat mulai</option>
+                <option value="5">5 menit sebelumnya</option>
+                <option value="10" selected>10 menit sebelumnya</option>
+                <option value="15">15 menit sebelumnya</option>
+                <option value="30">30 menit sebelumnya</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Pengulangan Jadwal (F-14) & Pilihan Suara Alarm (PRD 7 Poin 5) -->
+          <div class="form-row-2">
+            <div class="form-group">
+              <label class="form-label" for="eventRepeat">Pengulangan (F-14)</label>
+              <select id="eventRepeat" class="form-select">
+                <option value="none" selected>Tidak Berulang</option>
+                <option value="daily">Setiap Hari</option>
+                <option value="weekdays">Senin - Jumat</option>
+                <option value="weekly">Setiap Minggu</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Suara Alarm</label>
+              <button type="button" class="form-input" id="btnChooseEventSound" style="text-align: left; display: flex; align-items: center; justify-content: space-between; cursor: pointer;">
+                <span id="eventSoundLabel">🚨 Sirine Ayun</span>
+                <span style="font-size: 11px; color: var(--color-cyan);">Ganti ▾</span>
+              </button>
+              <input type="hidden" id="eventSoundType" value="default">
+            </div>
+          </div>
+
+          <!-- Catatan Tambahan -->
+          <div class="form-group">
+            <label class="form-label" for="eventNotes">Catatan / Lokasi (Opsional)</label>
+            <textarea id="eventNotes" class="form-textarea" rows="2" placeholder="Gedung, ruangan, atau perlengkapan yang perlu dibawa..."></textarea>
+          </div>
+
+          <div class="modal-actions">
+            <button type="button" class="btn-secondary" id="btnCancelModal" style="flex: 1;">Batal</button>
+            <button type="submit" class="btn-primary" style="flex: 2;">Simpan Jadwal</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ================= MODAL PENGGANTI SUARA ALARM (PRD Bagian 7 Poin 5) ================= -->
+    <div id="soundPickerModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="soundPickerTitle">
+      <div class="modal-sheet">
+        <div class="modal-header">
+          <div>
+            <h2 class="modal-title" id="soundPickerTitle">🎵 Pengganti Suara Alarm</h2>
+            <div style="font-size: 12px; color: var(--color-text-secondary); margin-top: 2px;">
+              Pilih suara alarm peringatan atau gunakan audio sendiri
+            </div>
+          </div>
+          <button type="button" class="btn-close-modal" id="btnCloseSoundPicker" aria-label="Tutup">✕</button>
+        </div>
+
+        <!-- Daftar Pilihan Suara Alarm dengan Tombol Pratinjau Langsung -->
+        <div class="sound-picker-list" id="soundOptionsContainer">
+          
+          <!-- Opsi 1: Sirine Ayun -->
+          <div class="sound-option-card selected" data-sound="wail">
+            <div class="sound-card-left">
+              <div class="sound-icon-circle">🚨</div>
+              <div class="sound-card-info">
+                <div class="sound-card-title">Sirine Ayun (Wail Siren)</div>
+                <div class="sound-card-desc">Suara sirine darurat berayun naik-turun</div>
+              </div>
+            </div>
+            <div class="sound-card-actions">
+              <button type="button" class="btn-preview-sound" data-sound="wail" title="Dengarkan Suara">▶</button>
+              <div class="sound-check-indicator">✓</div>
+            </div>
+          </div>
+
+          <!-- Opsi 2: Hi-Lo European -->
+          <div class="sound-option-card" data-sound="hilo">
+            <div class="sound-card-left">
+              <div class="sound-icon-circle">🚑</div>
+              <div class="sound-card-info">
+                <div class="sound-card-title">Dua Nada (Hi-Lo European)</div>
+                <div class="sound-card-desc">Bergantian dua nada sirine ambulans Eropa</div>
+              </div>
+            </div>
+            <div class="sound-card-actions">
+              <button type="button" class="btn-preview-sound" data-sound="hilo" title="Dengarkan Suara">▶</button>
+              <div class="sound-check-indicator">✓</div>
+            </div>
+          </div>
+
+          <!-- Opsi 3: Digital Beep -->
+          <div class="sound-option-card" data-sound="beep">
+            <div class="sound-card-left">
+              <div class="sound-icon-circle">⏰</div>
+              <div class="sound-card-info">
+                <div class="sound-card-title">Alarm Digital Beep</div>
+                <div class="sound-card-desc">Pulsa cepat 4 ketukan elektronik jam beker</div>
+              </div>
+            </div>
+            <div class="sound-card-actions">
+              <button type="button" class="btn-preview-sound" data-sound="beep" title="Dengarkan Suara">▶</button>
+              <div class="sound-check-indicator">✓</div>
+            </div>
+          </div>
+
+          <!-- Opsi 4: Chime -->
+          <div class="sound-option-card" data-sound="chime">
+            <div class="sound-card-left">
+              <div class="sound-icon-circle">🔔</div>
+              <div class="sound-card-info">
+                <div class="sound-card-title">Melodi Lonceng (Chime)</div>
+                <div class="sound-card-desc">Arpeggio nada harmonis lembut & jelas</div>
+              </div>
+            </div>
+            <div class="sound-card-actions">
+              <button type="button" class="btn-preview-sound" data-sound="chime" title="Dengarkan Suara">▶</button>
+              <div class="sound-check-indicator">✓</div>
+            </div>
+          </div>
+
+          <!-- Opsi 5: Buzzer Klaxon -->
+          <div class="sound-option-card" data-sound="buzzer">
+            <div class="sound-card-left">
+              <div class="sound-icon-circle">📢</div>
+              <div class="sound-card-info">
+                <div class="sound-card-title">Klaxon / Buzzer Tegas</div>
+                <div class="sound-card-desc">Buzzer peringatan frekuensi rendah tegas</div>
+              </div>
+            </div>
+            <div class="sound-card-actions">
+              <button type="button" class="btn-preview-sound" data-sound="buzzer" title="Dengarkan Suara">▶</button>
+              <div class="sound-check-indicator">✓</div>
+            </div>
+          </div>
+
+          <!-- Opsi 6: Suara Kustom (File Audio Sendiri) -->
+          <div class="sound-option-card" data-sound="custom" id="cardOptionCustom">
+            <div class="sound-card-left">
+              <div class="sound-icon-circle">📁</div>
+              <div class="sound-card-info">
+                <div class="sound-card-title">Suara Audio Kustom</div>
+                <div class="sound-card-desc" id="pickerCustomSoundDesc">Belum ada berkas audio (Unggah di bawah)</div>
+              </div>
+            </div>
+            <div class="sound-card-actions">
+              <button type="button" class="btn-preview-sound" data-sound="custom" id="btnPreviewCustomInPicker" title="Dengarkan Suara" style="display: none;">▶</button>
+              <div class="sound-check-indicator">✓</div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Tombol Unggah Audio Sendiri -->
+        <div style="margin-top: 16px; padding: 12px; background: #0b0914; border-radius: 12px; border: 1px dashed rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between;">
+          <div style="font-size: 12px; color: var(--color-text-secondary);">
+            <span>Unggah berkas suara sendiri:</span>
+            <div style="font-size: 11px; color: var(--color-text-muted);">Format MP3, WAV, atau OGG</div>
+          </div>
+          <button type="button" class="btn-secondary" id="btnUploadInPicker" style="font-size: 12px; padding: 6px 12px;">
+            <span>📁 Unggah Audio</span>
+          </button>
+          <input type="file" id="fileInputCustomInPicker" accept="audio/*" style="display: none;">
+        </div>
+
+        <div class="modal-actions" style="margin-top: 20px;">
+          <button type="button" class="btn-primary" id="btnApplySoundChoice">✓ Terapkan Suara Ini</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= LAYAR ALARM (PRD Bagian 7 & DESIGN.md) ================= -->
+    <div id="alarmOverlay" class="alarm-overlay hidden" role="alertdialog" aria-modal="true" aria-hidden="true">
+      <div class="alarm-backdrop-pulse"></div>
+
+      <!-- Container Geser (Swipe Container) -->
+      <div class="alarm-card-container" id="alarmCard">
+        
+        <!-- Ikon Segitiga Warning Merah dengan Animasi -->
+        <div class="alarm-icon-wrap" aria-hidden="true">
+          <svg class="alarm-warning-svg" viewBox="0 0 24 24">
+            <path d="M12 2L1 21h22L12 2zm0 4.2l8.5 14.8H3.5L12 6.2zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z"/>
+          </svg>
+        </div>
+
+        <!-- Badges Row -->
+        <div class="alarm-event-badges-row">
+          <span class="alarm-event-badge" id="alarmEventBadge">KULIAH</span>
+          <span class="alarm-event-badge" id="alarmEventRepeatBadge" style="background: rgba(255,42,133,0.3); display: none;">🔁 Setiap Hari</span>
+          <span class="alarm-event-badge" id="alarmSoundNameBadge" style="background: rgba(214,243,77,0.25); color: #d6f34d; display: none;">🔊 Sirine Ayun</span>
+        </div>
+
+        <!-- Nama Kegiatan -->
+        <h2 class="alarm-event-title" id="alarmEventTitle">Pemrograman Web</h2>
+
+        <!-- Keterangan Waktu Pengingat -->
+        <p class="alarm-event-info" id="alarmEventInfo">Jadwal dimulai dalam 10 menit.</p>
+
+        <!-- PRD Bagian 7 Poin 4: Tombol opsi aktivasi suara jika audio tertahan browser -->
+        <button type="button" class="btn-enable-alarm-sound hidden" id="btnEnableAlarmSound">
+          <span>🔊 Suara Tertahan? Klik untuk Membunyikan</span>
+        </button>
+
+        <!-- Area Gestur Geser Ke Atas (Swipe Up Handle) -->
+        <div class="alarm-swipe-area" id="alarmSwipeHandle">
+          <div class="swipe-chevrons">
+            <svg class="chevron-arrow" viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="18 15 12 9 6 15"></polyline>
+            </svg>
+            <svg class="chevron-arrow" viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="margin-top: -12px;">
+              <polyline points="18 15 12 9 6 15"></polyline>
+            </svg>
+          </div>
+          <span class="swipe-instruction">Geser ke atas untuk matikan alarm</span>
+          <span class="swipe-instruction-sub">Tarik layar ke atas</span>
+        </div>
+
+        <!-- Tombol Aksi Alternatif (Tunda & Hentikan) -->
+        <div class="alarm-actions-row">
+          <button type="button" class="alarm-action-btn btn-snooze" id="btnSnoozeAlarm" title="Tunda alarm selama 5 menit">
+            <span>⏱️ Tunda 5 Mnt</span>
+          </button>
+          <button type="button" class="alarm-action-btn" id="btnDismissAlarm" title="Hentikan Alarm (Spasi / Esc)">
+            <span>⏹️ Hentikan Alarm</span>
+          </button>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

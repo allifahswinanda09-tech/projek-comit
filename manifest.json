@@ -1,0 +1,19 @@
+{
+  "name": "JadwalSiaga — Pengatur Jadwal & Alarm",
+  "short_name": "JadwalSiaga",
+  "description": "Aplikasi pengatur jadwal kuliah, sekolah, kerja dengan alarm sirine dan layar peringatan merah.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#211D35",
+  "theme_color": "#211D35",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
+
