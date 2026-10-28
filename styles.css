@@ -79,6 +79,84 @@ body {
   }
 }
 
+/* PWA Install Banner */
+.pwa-install-banner {
+  background: linear-gradient(90deg, #18142a 0%, #09272e 100%);
+  border-bottom: 1px solid var(--color-cyan);
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  z-index: 60;
+  animation: slideDown 0.3s ease;
+}
+.pwa-install-banner.hidden {
+  display: none !important;
+}
+
+@keyframes slideDown {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(0); }
+}
+
+.pwa-install-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pwa-install-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pwa-install-sub {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.pwa-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-pwa-install {
+  background-color: var(--color-cyan);
+  color: #050505;
+  border: none;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-pwa-dismiss {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px;
+}
+
+/* Offline Notice Banner */
+.offline-notice-banner {
+  background-color: #2e1d09;
+  border-bottom: 1px solid var(--color-orange);
+  color: #ffb870;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
+.offline-notice-banner.hidden {
+  display: none !important;
+}
+
 /* Audio Banner Notice */
 .audio-notice-banner {
   background: linear-gradient(90deg, #ff7900, #a52bcc);

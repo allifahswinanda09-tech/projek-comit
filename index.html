@@ -6,18 +6,39 @@
   <title>JadwalSiaga — Pengatur Jadwal & Alarm</title>
   
   <meta name="theme-color" content="#211D35">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="JadwalSiaga">
+  <meta name="msapplication-TileColor" content="#211D35">
   <meta name="description" content="Aplikasi pengatur jadwal kuliah, sekolah, kerja dengan alarm peringatan merah dan gestur geser ke atas.">
 
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="apple-touch-icon" href="icon.svg">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
   <div class="app-container">
     
+    <!-- PWA Install Banner (Muncul otomatis saat browser mendukung pemasangan aplikasi) -->
+    <div id="pwaInstallBanner" class="pwa-install-banner hidden">
+      <div class="pwa-install-text">
+        <span class="pwa-install-title">📲 Pasang JadwalSiaga</span>
+        <span class="pwa-install-sub">Pasang di perangkat agar alarm tetap siaga</span>
+      </div>
+      <div class="pwa-banner-actions">
+        <button type="button" class="btn-pwa-install" id="btnInstallPwaBanner">Pasang</button>
+        <button type="button" class="btn-pwa-dismiss" id="btnDismissPwaBanner" aria-label="Tutup">✕</button>
+      </div>
+    </div>
+
+    <!-- Offline Notice Banner -->
+    <div id="offlineBanner" class="offline-notice-banner hidden">
+      ⚡ Mode Offline Aktif — Data & Alarm Tetap Bekerja Lokal
+    </div>
+
     <!-- Audio Unlock Banner (Jika browser menahan autoplay sebelum ada interaksi) -->
     <div id="audioBanner" class="audio-notice-banner hidden">
       <span>🔔 <strong>Aktifkan Audio:</strong> Klik di sini agar suara sirine alarm diizinkan berbunyi.</span>
@@ -180,6 +201,29 @@
                 <div class="stat-number" id="statTodayEvents" style="color: var(--color-orange);">0</div>
                 <div class="stat-label">Hari Ini</div>
               </div>
+            </div>
+          </div>
+
+          <!-- PWA & Dukungan Aplikasi Offline -->
+          <div class="settings-card">
+            <h3 style="font-size: 15px; color: var(--color-cyan); margin-bottom: -4px;">📱 PWA & Dukungan Aplikasi</h3>
+            
+            <div class="settings-row">
+              <div class="settings-row-text">
+                <span class="settings-label">Instalasi PWA</span>
+                <span class="settings-desc" id="pwaStatusText">Memeriksa status instalasi...</span>
+              </div>
+              <button class="btn-secondary" id="btnInstallPwaSettings">
+                <span>📲 Pasang Aplikasi</span>
+              </button>
+            </div>
+
+            <div class="settings-row">
+              <div class="settings-row-text">
+                <span class="settings-label">Penyimpanan Offline</span>
+                <span class="settings-desc">Service Worker & IndexedDB aktif</span>
+              </div>
+              <span style="font-size: 12px; color: var(--color-teal); font-weight: 700;">✓ 100% Offline</span>
             </div>
           </div>
 
@@ -465,10 +509,8 @@
           <button type="button" class="btn-close-modal" id="btnCloseSoundPicker" aria-label="Tutup">✕</button>
         </div>
 
-        <!-- Daftar Pilihan Suara Alarm dengan Tombol Pratinjau Langsung -->
         <div class="sound-picker-list" id="soundOptionsContainer">
           
-          <!-- Opsi 1: Sirine Ayun -->
           <div class="sound-option-card selected" data-sound="wail">
             <div class="sound-card-left">
               <div class="sound-icon-circle">🚨</div>
@@ -483,7 +525,6 @@
             </div>
           </div>
 
-          <!-- Opsi 2: Hi-Lo European -->
           <div class="sound-option-card" data-sound="hilo">
             <div class="sound-card-left">
               <div class="sound-icon-circle">🚑</div>
@@ -498,7 +539,6 @@
             </div>
           </div>
 
-          <!-- Opsi 3: Digital Beep -->
           <div class="sound-option-card" data-sound="beep">
             <div class="sound-card-left">
               <div class="sound-icon-circle">⏰</div>
@@ -513,7 +553,6 @@
             </div>
           </div>
 
-          <!-- Opsi 4: Chime -->
           <div class="sound-option-card" data-sound="chime">
             <div class="sound-card-left">
               <div class="sound-icon-circle">🔔</div>
@@ -528,7 +567,6 @@
             </div>
           </div>
 
-          <!-- Opsi 5: Buzzer Klaxon -->
           <div class="sound-option-card" data-sound="buzzer">
             <div class="sound-card-left">
               <div class="sound-icon-circle">📢</div>
@@ -543,7 +581,6 @@
             </div>
           </div>
 
-          <!-- Opsi 6: Suara Kustom (File Audio Sendiri) -->
           <div class="sound-option-card" data-sound="custom" id="cardOptionCustom">
             <div class="sound-card-left">
               <div class="sound-icon-circle">📁</div>

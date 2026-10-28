@@ -3,7 +3,7 @@
  * Mengontrol logika antarmuka, navigasi tab, kalender, WatchClockCard,
  * deteksi konflik jadwal, pencarian, jadwal berulang (F-14),
  * Modal Pengganti Suara Alarm (PRD Bagian 7 Poin 5) dengan pratinjau audio instan & upload kustom,
- * serta penyimpanan lokal ke IndexedDB.
+ * serta Progressive Web App (PWA) installation, offline sync, dan Service Worker registration.
  */
 
 import { getAllEvents, saveEvent, deleteEvent, clearAllEvents, getSettings, saveSettings, saveCustomAudio, getCustomAudio, deleteCustomAudio } from './db.js';
@@ -30,6 +30,10 @@ class App {
     this.selectedSoundInPicker = 'wail';
     this.previewTimeoutId = null;
     this.currentlyPreviewingSound = null;
+
+    // PWA state
+    this.deferredInstallPrompt = null;
+    this.isAppInstalled = false;
 
     // Inisialisasi Alarm Manager
     this.alarmManager = new AlarmManager({
@@ -69,9 +73,10 @@ class App {
     }
     this.alarmManager.updateEvents(this.events);
 
-    // 3. Setup DOM Listeners
+    // 3. Setup DOM Listeners & PWA Listeners
     this.setupEventListeners();
     this.setupSoundPickerModal();
+    this.setupPwaFeatures();
 
     // 4. Setup Jam Real-time (WatchClockCard & Header)
     this.startWatchClock();
@@ -83,8 +88,141 @@ class App {
     this.updateNotificationPermissionStatus();
     this.updateStats();
 
+    // 6. Evaluasi URL Parameters dari PWA Shortcuts
+    this.handleUrlParameters();
+  }
+
+  /**
+   * Evaluasi URL Query Params dari PWA App Shortcuts
+   */
+  handleUrlParameters() {
+    const params = new URLSearchParams(window.location.search);
+    const action = params.get('action');
+    const tab = params.get('tab');
+
+    if (tab && ['agenda', 'kalender', 'pengaturan'].includes(tab)) {
+      this.switchTab(tab);
+    }
+
+    if (action === 'new') {
+      setTimeout(() => this.openEventModal(), 200);
+    } else if (action === 'sound') {
+      setTimeout(() => this.openSoundPickerModal('global', this.settings.soundType || 'wail'), 200);
+    }
+  }
+
+  /**
+   * Setup Dukungan Progressive Web App (PWA)
+   */
+  setupPwaFeatures() {
+    const pwaBanner = document.getElementById('pwaInstallBanner');
+    const btnInstallBanner = document.getElementById('btnInstallPwaBanner');
+    const btnDismissBanner = document.getElementById('btnDismissPwaBanner');
+    const btnInstallSettings = document.getElementById('btnInstallPwaSettings');
+    const pwaStatusText = document.getElementById('pwaStatusText');
+    const offlineBanner = document.getElementById('offlineBanner');
+
+    // Cek apakah sedang berjalan dalam mode standalone PWA
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+    if (isStandalone) {
+      this.isAppInstalled = true;
+      if (pwaStatusText) pwaStatusText.textContent = '✓ Terpasang (Mode Standalone PWA)';
+      if (btnInstallSettings) {
+        btnInstallSettings.disabled = true;
+        btnInstallSettings.textContent = '✓ Aplikasi Terpasang';
+      }
+      if (pwaBanner) pwaBanner.classList.add('hidden');
+    } else {
+      if (pwaStatusText) pwaStatusText.textContent = 'Dapat dipasang di Layar Beranda / Desktop';
+    }
+
+    // Tangkap event sebelum instalasi muncul (Chromium / Edge / Android)
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      this.deferredInstallPrompt = e;
+
+      // Tampilkan banner instalasi jika belum pernah ditutup di sesi ini
+      if (!sessionStorage.getItem('pwa_banner_dismissed') && !this.isAppInstalled) {
+        if (pwaBanner) pwaBanner.classList.remove('hidden');
+      }
+
+      if (btnInstallSettings) {
+        btnInstallSettings.disabled = false;
+        btnInstallSettings.textContent = '📲 Pasang Sekarang';
+      }
+      if (pwaStatusText) {
+        pwaStatusText.textContent = 'Siap dipasang sebagai aplikasi';
+        pwaStatusText.style.color = 'var(--color-cyan)';
+      }
+    });
+
+    const triggerInstall = async () => {
+      if (!this.deferredInstallPrompt) {
+        alert('Untuk memasang aplikasi:\n- Di HP: Tekan menu browser (titik tiga) lalu pilih "Tambahkan ke Layar Utama / Install".\n- Di Komputer: Klik ikon Pasang Aplikasi di bilah alamat browser.');
+        return;
+      }
+
+      this.deferredInstallPrompt.prompt();
+      const choice = await this.deferredInstallPrompt.userChoice;
+      if (choice.outcome === 'accepted') {
+        this.showToast('Memasang JadwalSiaga...');
+      }
+      this.deferredInstallPrompt = null;
+      if (pwaBanner) pwaBanner.classList.add('hidden');
+    };
+
+    if (btnInstallBanner) btnInstallBanner.addEventListener('click', triggerInstall);
+    if (btnInstallSettings) btnInstallSettings.addEventListener('click', triggerInstall);
+
+    if (btnDismissBanner) {
+      btnDismissBanner.addEventListener('click', () => {
+        if (pwaBanner) pwaBanner.classList.add('hidden');
+        sessionStorage.setItem('pwa_banner_dismissed', 'true');
+      });
+    }
+
+    // Event saat aplikasi berhasil dipasang
+    window.addEventListener('appinstalled', () => {
+      this.isAppInstalled = true;
+      this.deferredInstallPrompt = null;
+      if (pwaBanner) pwaBanner.classList.add('hidden');
+      if (pwaStatusText) {
+        pwaStatusText.textContent = '✓ Berhasil Dipasang!';
+        pwaStatusText.style.color = 'var(--color-teal)';
+      }
+      if (btnInstallSettings) {
+        btnInstallSettings.disabled = true;
+        btnInstallSettings.textContent = '✓ Aplikasi Terpasang';
+      }
+      this.showToast('🎉 JadwalSiaga berhasil dipasang sebagai aplikasi!');
+    });
+
+    // Deteksi Online / Offline
+    const updateOnlineStatus = () => {
+      if (navigator.onLine) {
+        if (offlineBanner) offlineBanner.classList.add('hidden');
+      } else {
+        if (offlineBanner) offlineBanner.classList.remove('hidden');
+        this.showToast('Mode offline aktif (Aplikasi tetap bekerja lokal)');
+      }
+    };
+
+    window.addEventListener('online', () => {
+      updateOnlineStatus();
+      this.showToast('Koneksi terhubung kembali');
+    });
+    window.addEventListener('offline', updateOnlineStatus);
+    updateOnlineStatus();
+
+    // Registrasi Service Worker
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js').catch(() => {});
+      navigator.serviceWorker.register('./sw.js', { scope: './' })
+        .then((reg) => {
+          console.log('Service Worker PWA berhasil didaftarkan dengan cakupan:', reg.scope);
+        })
+        .catch((err) => {
+          console.warn('Registrasi Service Worker gagal:', err);
+        });
     }
   }
 
@@ -343,12 +481,6 @@ class App {
     }, { once: true });
   }
 
-  /**
-   * ========================================================
-   * PENGGANTI SUARA ALARM (PRD Bagian 7 Poin 5)
-   * Modal Interaktif untuk Memilih, Menguji, dan Mengunggah Audio
-   * ========================================================
-   */
   setupSoundPickerModal() {
     const modal = document.getElementById('soundPickerModal');
     const btnClose = document.getElementById('btnCloseSoundPicker');
@@ -360,19 +492,16 @@ class App {
       btnClose.addEventListener('click', () => this.closeSoundPickerModal());
     }
 
-    // Pilihan Kartu Suara
     document.querySelectorAll('.sound-option-card').forEach(card => {
       card.addEventListener('click', (e) => {
-        // Jangan trigger jika yang diklik adalah tombol preview
         if (e.target && e.target.closest('.btn-preview-sound')) return;
 
         const soundKey = card.getAttribute('data-sound');
         this.selectSoundCard(soundKey);
-        this.previewSound(soundKey); // Langsung bunyikan pratinjau 2 detik
+        this.previewSound(soundKey);
       });
     });
 
-    // Tombol Preview di Kartu
     document.querySelectorAll('.btn-preview-sound').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -385,13 +514,11 @@ class App {
       });
     });
 
-    // Upload audio di dalam Sound Picker Modal
     if (btnUpload && fileInput) {
       btnUpload.addEventListener('click', () => fileInput.click());
       fileInput.addEventListener('change', (e) => this.handleCustomAudioUploadInPicker(e));
     }
 
-    // Tombol Terapkan
     if (btnApply) {
       btnApply.addEventListener('click', async () => {
         await this.applySelectedSound();
@@ -427,7 +554,6 @@ class App {
     sirenPlayer.initContext();
     this.currentlyPreviewingSound = soundKey;
 
-    // Update icon tombol preview menjadi stop ⏹️
     document.querySelectorAll('.btn-preview-sound').forEach(btn => {
       if (btn.getAttribute('data-sound') === soundKey) {
         btn.textContent = '⏹';
@@ -440,7 +566,6 @@ class App {
 
     sirenPlayer.start(this.settings.sirenVolume || 0.8, 3.5, soundKey);
 
-    // Otomatis stop setelah 3.5 detik
     this.previewTimeoutId = setTimeout(() => {
       this.stopSoundPreview();
     }, 3600);

@@ -1,10 +1,11 @@
 /**
- * sw.js — Service Worker for JadwalSiaga PWA
- * Menyediakan dukungan offline cache dan penanganan event notifikasi.
+ * sw.js — Progressive Web App Service Worker for JadwalSiaga
+ * Menyediakan dukungan offline cache, background notifications,
+ * dan instalasi PWA standar modern.
  */
 
-const CACHE_NAME = 'jadwalsiaga-v1';
-const ASSETS_TO_CACHE = [
+const CACHE_NAME = 'jadwalsiaga-pwa-v2';
+const STATIC_ASSETS = [
   './',
   './index.html',
   './styles.css',
@@ -16,21 +17,23 @@ const ASSETS_TO_CACHE = [
   './icon.svg'
 ];
 
+// 1. Install Event: Simpan aset penting ke cache
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
+      return cache.addAll(STATIC_ASSETS);
     }).then(() => self.skipWaiting())
   );
 });
 
+// 2. Activate Event: Bersihkan cache versi lama
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => {
+    caches.keys().then((cacheNames) => {
       return Promise.all(
-        keys.map((key) => {
-          if (key !== CACHE_NAME) {
-            return caches.delete(key);
+        cacheNames.map((name) => {
+          if (name !== CACHE_NAME) {
+            return caches.delete(name);
           }
         })
       );
@@ -38,44 +41,58 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// 3. Fetch Event: Stale-While-Revalidate untuk kecepatan & dukungan offline 100%
 self.addEventListener('fetch', (event) => {
-  // Hanya layani permintaan GET lokal
   if (event.request.method !== 'GET') return;
 
+  const url = new URL(event.request.url);
+
+  // Jangan tangani skema chrome-extension:// atau non-http(s)
+  if (!url.protocol.startsWith('http')) return;
+
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      return fetch(event.request).then((networkResponse) => {
+    caches.open(CACHE_NAME).then(async (cache) => {
+      const cachedResponse = await cache.match(event.request);
+
+      const fetchPromise = fetch(event.request).then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+          cache.put(event.request, networkResponse.clone());
+        }
         return networkResponse;
       }).catch(() => {
-        // Jika offline dan membuka halaman, kembalikan index.html
+        // Jika offline dan merupakan navigasi halaman web
         if (event.request.mode === 'navigate') {
-          return caches.match('./index.html');
+          return cache.match('./index.html');
         }
+        return null;
       });
+
+      // Kembalikan versi cache jika ada, sambil memperbarui di latar belakang
+      return cachedResponse || fetchPromise;
     })
   );
 });
 
-// Penanganan interaksi notifikasi
+// 4. Notification Click Event: Buka kembali aplikasi saat notifikasi diklik
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      if (clientList.length > 0) {
-        let client = clientList[0];
-        for (let i = 0; i < clientList.length; i++) {
-          if (clientList[i].focused) {
-            client = clientList[i];
-            break;
-          }
+      for (const client of clientList) {
+        if (client.url && 'focus' in client) {
+          return client.focus();
         }
-        return client.focus();
       }
-      return clients.openWindow('./');
+      if (clients.openWindow) {
+        return clients.openWindow('./');
+      }
     })
   );
 });
 
+// 5. Message Event: Dukungan komunikasi dari aplikasi
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
